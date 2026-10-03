@@ -2,13 +2,32 @@ import pluginJs from '@eslint/js';
 import rxjsPlugin from '@smarttools/eslint-plugin-rxjs';
 import stylistic from '@stylistic/eslint-plugin';
 import angular from 'angular-eslint';
+import checkFile from 'eslint-plugin-check-file';
 import eslintConfigPrettier from 'eslint-config-prettier';
 import importXPlugin from 'eslint-plugin-import-x';
+import sonarjs from 'eslint-plugin-sonarjs';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 const forbiddenUppercaseAbbreviations = 'ID|URL|HTTP|JSON|XML';
 const underscoreTemplate = '^_';
+const entityTypes = [
+  'component',
+  'directive',
+  'pipe',
+  'service',
+  'guard',
+  'resolver',
+  'interceptor',
+  'module',
+  'enum',
+  'interface',
+  'store',
+  'util',
+  'config',
+  'routes',
+  'spec',
+].join('|');
 
 export default tseslint.config(
   { ignores: ['dist/*', '.angular/*', 'coverage/*'] },
@@ -24,7 +43,9 @@ export default tseslint.config(
   {
     files: ['**/*.ts'],
     extends: [
-      ...tseslint.configs.recommended,
+      ...tseslint.configs.strictTypeChecked,
+      ...tseslint.configs.stylisticTypeChecked,
+      sonarjs.configs.recommended,
       ...angular.configs.tsRecommended,
     ],
     processor: angular.processInlineTemplates,
@@ -126,6 +147,8 @@ export default tseslint.config(
       '@typescript-eslint/explicit-function-return-type': 'error',
       '@typescript-eslint/no-unnecessary-condition': 'error',
       '@typescript-eslint/no-non-null-assertion': 'error',
+      '@typescript-eslint/no-deprecated': 'error',
+      '@typescript-eslint/member-ordering': 'error',
 
       eqeqeq: 'error',
       'no-nested-ternary': 'error',
@@ -174,6 +197,19 @@ export default tseslint.config(
         { suffix: '$$', methods: false, functions: false },
       ],
       '@smarttools/rxjs/no-unsafe-takeuntil': 'error',
+
+      '@angular-eslint/prefer-signals': 'error',
+      '@angular-eslint/prefer-output-emitter-ref': 'error',
+      '@angular-eslint/prefer-output-readonly': 'error',
+      '@angular-eslint/no-async-lifecycle-method': 'error',
+      '@angular-eslint/component-selector': [
+        'error',
+        { type: 'element', prefix: 'app', style: 'kebab-case' },
+      ],
+      '@angular-eslint/directive-selector': [
+        'error',
+        { type: 'attribute', prefix: 'app', style: 'camelCase' },
+      ],
     },
   },
   {
@@ -183,6 +219,9 @@ export default tseslint.config(
       ...angular.configs.templateAccessibility,
     ],
     rules: {
+      '@angular-eslint/template/no-call-expression': 'error',
+      '@angular-eslint/template/prefer-ngsrc': 'error',
+      '@angular-eslint/template/button-has-type': 'error',
       '@angular-eslint/template/attributes-order': [
         'error',
         {
@@ -198,6 +237,24 @@ export default tseslint.config(
         },
       ],
     },
+  },
+  {
+    files: ['src/**/*.{ts,html,scss}'],
+    ignores: ['src/main.ts', 'src/index.html', 'src/styles.scss'],
+    plugins: { 'check-file': checkFile },
+    rules: {
+      'check-file/filename-naming-convention': [
+        'error',
+        { 'src/**/*.{ts,html,scss}': `+([a-z0-9-]).@(${entityTypes})?(.spec)` },
+        { ignoreMiddleExtensions: false },
+      ],
+    },
+  },
+  {
+    files: ['src/**/*.{html,scss}'],
+    ignores: ['src/index.html', 'src/styles.scss'],
+    plugins: { 'check-file': checkFile },
+    processor: 'check-file/eslint-processor-check-file',
   },
   eslintConfigPrettier
 );
