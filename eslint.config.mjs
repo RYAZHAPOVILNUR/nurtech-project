@@ -240,7 +240,12 @@ export default tseslint.config(
   },
   {
     files: ['src/**/*.{ts,html,scss}'],
-    ignores: ['src/main.ts', 'src/index.html', 'src/styles.scss'],
+    ignores: [
+      'src/main.ts',
+      'src/test-setup.ts',
+      'src/index.html',
+      'src/styles.scss',
+    ],
     plugins: { 'check-file': checkFile },
     rules: {
       'check-file/filename-naming-convention': [
