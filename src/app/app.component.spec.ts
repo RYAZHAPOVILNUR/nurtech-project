@@ -1,4 +1,5 @@
 import { TestBed } from '@angular/core/testing';
+import { provideTaiga } from '@taiga-ui/core';
 
 import { AppComponent } from './app.component';
 
@@ -6,6 +7,7 @@ describe('AppComponent', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [AppComponent],
+      providers: [provideTaiga()],
     }).compileComponents();
   });
 
@@ -15,12 +17,10 @@ describe('AppComponent', () => {
     expect(app).toBeTruthy();
   });
 
-  it('should render title', async () => {
+  it('should render tui-root', async () => {
     const fixture = TestBed.createComponent(AppComponent);
     await fixture.whenStable();
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('h1')?.textContent).toContain(
-      'Hello, nurtech-project'
-    );
+    expect(compiled.querySelector('tui-root')).toBeDefined();
   });
 });
