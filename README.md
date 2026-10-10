@@ -2,6 +2,11 @@
 
 This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 21.2.24.
 
+## Документация
+
+- [docs-short/](docs-short/README.md) — MVP, который разрабатывается сейчас: экраны, макеты, план, ТЗ и контракт бэкенда.
+- [docs/](docs/README.md) — полная версия продукта (целевое состояние после MVP); журнал решений — [docs/decisions.md](docs/decisions.md).
+
 ## Development server
 
 To start a local development server, run:

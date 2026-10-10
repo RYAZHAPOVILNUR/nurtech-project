@@ -1,0 +1,4579 @@
+openapi: 3.0.3
+info:
+  title: Task manager API
+  version: 0.7.0
+  description: >
+    Контракт API учебного таск-менеджера. Файл растёт пакетами ТЗ (docs/backend).
+    Сейчас: пакет 1 (вход, приглашения, сессия, профиль, администрирование пользователей)
+    пакет 2 (проекты, участники, права) и пакет 3 (статусы, доски, направления, теги), пакет 4 (задачи) пакет 5 (связи, ссылки, поиск, список) пакет 6 (карточки досок, перенос) пакет 7 (комментарии, списания, подписки) и пакет 8 (уведомления, webhook бота). Параметр projectId — UUID проекта (ключ в путях не используется).
+    У каждой ручки указано x-permission (ключ из docs/13), none (достаточно сессии) или x-public.
+    Источник истины - этот файл. Любое изменение контракта - это PR с повышением minor в info.version и строкой в CHANGELOG.md рядом; ломающие изменения - только с согласия ментора.
+servers:
+  - url: /api
+tags:
+  - name: Session
+  - name: Telegram
+  - name: Invitations
+  - name: Profile
+  - name: Admin users
+  - name: Admin projects
+  - name: Projects
+  - name: Members
+  - name: Statuses
+  - name: Boards
+  - name: Subsystems
+  - name: Tags
+  - name: Tasks
+  - name: Links
+  - name: Comments
+  - name: Worklogs
+  - name: Watches
+  - name: Notifications
+security:
+  - cookieAuth: []
+paths:
+  /auth/login:
+    post:
+      operationId: login
+      tags: [Session]
+      summary: Вход по логину и паролю
+      description: 'Неверный логин или пароль, а также тело, не прошедшее проверку длины, - 401 invalid_credentials (одинаковый ответ). Публичная ручка, сессия не нужна.'
+      x-public: true
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Сессия создана (Set-Cookie sid)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/InvalidCredentials'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyAttempts'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [Session]
+      summary: Выход
+      description: 'Право: `none` (достаточно сессии).'
+      x-permission: none
+      responses:
+        '204':
+          description: Сессия отозвана
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [Session]
+      summary: Текущий пользователь и глобальные права
+      description: 'Право: `none` (достаточно сессии).'
+      x-permission: none
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /auth/telegram/start:
+    post:
+      operationId: startTelegramLogin
+      tags: [Telegram]
+      summary: Начать вход через Telegram
+      description: 'Публичная ручка, сессия не нужна.'
+      x-public: true
+      security: []
+      responses:
+        '201':
+          description: Запрос создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TelegramStartResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/TooManyAttempts'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /auth/telegram/status:
+    post:
+      operationId: pollTelegramStatus
+      tags: [Telegram]
+      summary: Статус Telegram-запроса (опрос раз в 2 секунды)
+      description: >
+        Токен передаётся в теле, а не в адресе: ручка меняет состояние и не должна попадать токеном в журналы.
+        Для цели login при confirmed в ответе устанавливается сессия (Set-Cookie sid), запрос закрывается.
+        Для цели invite при confirmed возвращается telegramUsername; запрос не закрывается, его закрывает acceptInvitation.
+        Для цели link ответ доступен только сессии, создавшей запрос (иначе 404), при confirmed Telegram привязывается и запрос закрывается.
+        Конечные статусы expired, not_linked, deactivated, already_linked закрывают запрос после выдачи.
+        Неизвестный или закрытый токен: 404. Публичная ручка, сессия не нужна.
+      x-public: true
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TelegramStatusRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TelegramStatusResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /invitations/{token}:
+    get:
+      operationId: getInvitation
+      tags: [Invitations]
+      summary: Данные приглашения
+      description: 'Публичная ручка, сессия не нужна.'
+      x-public: true
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/InvitationToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvitationInfo'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/InvitationInvalid'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /invitations/{token}/username-available:
+    get:
+      operationId: checkUsernameAvailable
+      tags: [Invitations]
+      summary: Проверка логина на занятость
+      description: 'Публичная ручка, сессия не нужна.'
+      x-public: true
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/InvitationToken'
+        - name: username
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsernameAvailability'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/InvitationInvalid'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /invitations/{token}/telegram/start:
+    post:
+      operationId: startInvitationTelegram
+      tags: [Invitations, Telegram]
+      summary: Начать подтверждение Telegram для приглашения
+      description: 'Публичная ручка, сессия не нужна.'
+      x-public: true
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/InvitationToken'
+      responses:
+        '201':
+          description: Запрос создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TelegramStartResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/InvitationInvalid'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /invitations/{token}/accept:
+    post:
+      operationId: acceptInvitation
+      tags: [Invitations]
+      summary: Принять приглашение
+      description: >
+        Либо пароль, либо telegramToken подтверждённого запроса цели invite этого же приглашения. Для kind=new username обязателен в обоих способах
+        (из telegramUsername логин не берётся: фронт подставляет его в поле, приведя к нижнему регистру); для kind=reissue username не передаётся (422 fields.username = not_allowed).
+        Чужой, неподтверждённый, просроченный и уже использованный токен Telegram, а также приглашение, отозванное деактивацией пользователя, - 404 invitation_invalid.
+        Приглашение одноразовое: из двух одновременных запросов успешен один, второй получает 404 invitation_invalid.
+        Успех: 200 MeResponse (как GET /auth/me) и сессия (Set-Cookie sid).
+        Публичная ручка, сессия не нужна.
+      x-public: true
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/InvitationToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AcceptInvitationRequest'
+      responses:
+        '200':
+          description: Аккаунт активен, сессия создана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/InvitationInvalid'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /profile:
+    patch:
+      operationId: updateProfile
+      tags: [Profile]
+      summary: Изменить имя
+      description: 'Право: `none` (достаточно сессии).'
+      x-permission: none
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /profile/password:
+    post:
+      operationId: changePassword
+      tags: [Profile]
+      summary: Сменить пароль
+      description: >
+        current обязателен, кроме случая mustChangePassword = true (первый вход системного администратора с паролем из конфигурации: достаточно next, 204).
+        Если пароля нет (вход только через Telegram), задать его нельзя: 422 с fields.current = required.
+        Неверный current - 422 с fields.current = invalid; неверные попытки считаются теми же счётчиками, что и вход, при превышении - 429 too_many_attempts.
+        Успех отзывает остальные сессии и снимает mustChangePassword. Право: `none` (достаточно сессии).
+      x-permission: none
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '204':
+          description: Пароль изменён
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/TooManyAttempts'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /profile/telegram/start:
+    post:
+      operationId: startProfileTelegram
+      tags: [Profile, Telegram]
+      summary: Начать привязку Telegram
+      description: 'Право: `none` (достаточно сессии).'
+      x-permission: none
+      responses:
+        '201':
+          description: Запрос создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TelegramStartResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /profile/telegram:
+    delete:
+      operationId: unlinkTelegram
+      tags: [Profile]
+      summary: Отвязать Telegram
+      description: 'Право: `none` (достаточно сессии).'
+      x-permission: none
+      responses:
+        '204':
+          description: Отвязан
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /profile/notifications:
+    patch:
+      operationId: updateNotificationSettings
+      tags: [Profile]
+      summary: Включить или выключить уведомления в Telegram
+      description: 'Право: `none` (достаточно сессии).'
+      x-permission: none
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateNotificationsRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /admin/users:
+    get:
+      operationId: listAdminUsers
+      tags: [Admin users]
+      summary: Список пользователей
+      description: 'Право: `user-list`.'
+      x-permission: user-list
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+            maxLength: 100
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [invited, deactivated]
+      responses:
+        '200':
+          description: Весь список без пагинации
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /admin/users/invite:
+    post:
+      operationId: inviteUser
+      tags: [Admin users]
+      summary: Пригласить пользователя
+      description: 'Право: `user-invite`.'
+      x-permission: user-invite
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InviteUserRequest'
+      responses:
+        '201':
+          description: Пользователь и ссылка-приглашение
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InviteUserResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /admin/users/{id}/reissue:
+    post:
+      operationId: reissueUserAccess
+      tags: [Admin users]
+      summary: Выдать новую ссылку для входа
+      description: >
+        Отзывает прежние приглашения и сессии, сбрасывает пароль, привязку Telegram и уведомления в Telegram, ставит статус invited.
+        Если у пользователя уже есть логин, приглашение kind=reissue (логин сохраняется); если логина ещё нет, kind=new и при принятии нужно выбрать логин.
+        Для себя - 409 cannot_reissue_self, для деактивированного - 409 user_deactivated. Право: `user-reissue-access`.
+      x-permission: user-reissue-access
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: Новая ссылка
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReissueResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /admin/users/{id}/deactivate:
+    post:
+      operationId: deactivateUser
+      tags: [Admin users]
+      summary: Деактивировать пользователя
+      description: >
+        Ставит deactivated, отзывает все сессии и действующие приглашения: по старой ссылке деактивированный не активируется (404 invitation_invalid),
+        а незавершённый вход через Telegram даёт статус deactivated. Повторный вызов для деактивированного - 200 без изменений. Право: `user-deactivate`.
+      x-permission: user-deactivate
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /admin/users/{id}/activate:
+    post:
+      operationId: activateUser
+      tags: [Admin users]
+      summary: Вернуть пользователя
+      description: 'Право: `user-deactivate`.'
+      x-permission: user-deactivate
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /admin/projects:
+    get:
+      operationId: listAdminProjects
+      tags: [Admin projects]
+      summary: Все проекты системы (без содержимого)
+      description: 'Порядок по названию. Право: `project-list-all`.'
+      x-permission: project-list-all
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+            maxLength: 100
+      responses:
+        '200':
+          description: Весь список без пагинации
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminProjectList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      operationId: createProject
+      tags: [Admin projects]
+      summary: Создать проект
+      description: 'Право: `project-create`.'
+      x-permission: project-create
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProjectRequest'
+      responses:
+        '201':
+          description: Проект создан, owner назначен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminProject'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /admin/projects/{id}/members:
+    get:
+      operationId: listAdminProjectMembers
+      tags: [Admin projects]
+      summary: Участники проекта (для выбора нового owner)
+      description: >
+        Весь список без пагинации, включая деактивированных: порядок owner, admin, member, viewer, внутри роли по имени.
+        Работает для любого проекта; системному администратору не нужно быть участником.
+        Отдаёт только состав участников, содержимого проекта нет. Право: `project-change-owner`.
+      x-permission: project-change-owner
+      parameters:
+        - $ref: '#/components/parameters/ProjectUuid'
+      responses:
+        '200':
+          description: Весь список без пагинации
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemberList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /admin/projects/{id}/change-owner:
+    post:
+      operationId: changeProjectOwner
+      tags: [Admin projects]
+      summary: Сменить owner проекта
+      description: 'Новый owner должен быть активным участником (список - GET /admin/projects/{id}/members); прежний становится admin. Единственный путь смены owner. Право: `project-change-owner`.'
+      x-permission: project-change-owner
+      parameters:
+        - $ref: '#/components/parameters/ProjectUuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangeOwnerRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminProject'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /projects:
+    get:
+      operationId: listMyProjects
+      tags: [Projects]
+      summary: Проекты текущего пользователя
+      description: 'Только проекты, где пользователь участник; порядок по названию. Право: `none` (достаточно сессии).'
+      x-permission: none
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /projects/{projectId}:
+    get:
+      operationId: getProject
+      tags: [Projects]
+      summary: Данные проекта
+      description: 'Право: `project-view`.'
+      x-permission: project-view
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    patch:
+      operationId: updateProject
+      tags: [Projects]
+      summary: Изменить название и описание
+      description: 'Право: `project-update`.'
+      x-permission: project-update
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProjectRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /projects/{projectId}/me:
+    get:
+      operationId: getProjectMe
+      tags: [Projects]
+      summary: Роль и права текущего пользователя в проекте
+      description: 'Запрашивается при входе в проект и после любого 403. Право: `project-view`.'
+      x-permission: project-view
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectMe'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /projects/{projectId}/members:
+    get:
+      operationId: listMembers
+      tags: [Members]
+      summary: Участники проекта
+      description: 'Порядок owner, admin, member, viewer; внутри роли по имени. Включает деактивированных. Право: `member-list`.'
+      x-permission: member-list
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - name: search
+          in: query
+          schema:
+            type: string
+            maxLength: 100
+      responses:
+        '200':
+          description: Весь список без пагинации
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemberList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      operationId: addMembers
+      tags: [Members]
+      summary: Добавить участников с одной ролью
+      description: 'Атомарно. Роли admin, member, viewer назначают одинаково owner и admin. Право: `member-add`.'
+      x-permission: member-add
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddMembersRequest'
+      responses:
+        '201':
+          description: Добавленные участники
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemberList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /projects/{projectId}/member-candidates:
+    get:
+      operationId: listMemberCandidates
+      tags: [Members]
+      summary: Кого можно добавить
+      description: 'Активные пользователи системы, не состоящие в проекте; не более 50, по имени. Право: `member-add`.'
+      x-permission: member-add
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - name: search
+          in: query
+          required: true
+          description: Не короче 2 символов после trim; нет - 422 required, короче - 422 invalid
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 100
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemberCandidateList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /projects/{projectId}/members/{userId}:
+    patch:
+      operationId: changeMemberRole
+      tags: [Members]
+      summary: Сменить роль участника
+      description: 'Owner и admin меняют роли одинаково. Если цель - сам вызывающий, то 409 cannot_change_self (в том числе для owner); иначе если цель - owner, то 409 owner_role_locked. Право: `member-role-change`.'
+      x-permission: member-role-change
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/MemberUserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangeMemberRoleRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemberResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      operationId: removeMember
+      tags: [Members]
+      summary: Удалить участника из проекта
+      description: 'Owner и admin удаляют одинаково. Если цель - сам вызывающий, то 409 cannot_remove_self (в том числе для owner); иначе если цель - owner, то 409 owner_role_locked. Право: `member-remove`.'
+      x-permission: member-remove
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/MemberUserId'
+      responses:
+        '204':
+          description: Удалён
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /projects/{projectId}/statuses:
+    get:
+      operationId: listStatuses
+      tags: [Statuses]
+      summary: Статусы проекта по порядку
+      description: 'Право: `project-view`.'
+      x-permission: project-view
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      operationId: createStatus
+      tags: [Statuses]
+      summary: Создать статус (в конец списка)
+      description: 'Право: `status-manage`.'
+      x-permission: status-manage
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateStatusRequest'
+      responses:
+        '201':
+          description: Создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /projects/{projectId}/statuses/order:
+    put:
+      operationId: reorderStatuses
+      tags: [Statuses]
+      summary: Задать порядок статусов
+      description: 'ids — все статусы проекта ровно по одному разу Право: `status-manage`.'
+      x-permission: status-manage
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StatusOrderRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /statuses/{statusId}:
+    patch:
+      operationId: updateStatus
+      tags: [Statuses]
+      summary: Изменить статус
+      description: 'Право: `status-manage`.'
+      x-permission: status-manage
+      parameters:
+        - $ref: '#/components/parameters/StatusId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateStatusRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      operationId: deleteStatus
+      tags: [Statuses]
+      summary: Удалить статус с переносом задач
+      description: 'moveTo обязателен, если в статусе есть задачи. 409 last_done_status, move_to_required, board_would_be_empty. Право: `status-manage`.'
+      x-permission: status-manage
+      parameters:
+        - $ref: '#/components/parameters/StatusId'
+        - name: moveTo
+          in: query
+          description: Статус, куда перенести задачи
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Удалён
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /projects/{projectId}/boards:
+    get:
+      operationId: listBoards
+      tags: [Boards]
+      summary: Доски проекта в порядке создания
+      description: 'Доски возвращаются в порядке создания; шаблон Dev team создаёт "Разработку", затем "Планирование". Право: `board-view`.'
+      x-permission: board-view
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BoardList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      operationId: createBoard
+      tags: [Boards]
+      summary: Создать доску
+      description: 'Право: `board-manage`.'
+      x-permission: board-manage
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBoardRequest'
+      responses:
+        '201':
+          description: Создана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Board'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /boards/{boardId}:
+    get:
+      operationId: getBoard
+      tags: [Boards]
+      summary: Настройка доски
+      description: 'Право: `board-view`.'
+      x-permission: board-view
+      parameters:
+        - $ref: '#/components/parameters/BoardId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Board'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    patch:
+      operationId: updateBoard
+      tags: [Boards]
+      summary: Изменить доску
+      description: 'columns и baseFilter, если переданы, заменяются целиком. Право: `board-manage`.'
+      x-permission: board-manage
+      parameters:
+        - $ref: '#/components/parameters/BoardId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateBoardRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Board'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      operationId: deleteBoard
+      tags: [Boards]
+      summary: Удалить доску
+      description: 'Последнюю доску проекта удалить нельзя (last_board). Право: `board-manage`.'
+      x-permission: board-manage
+      parameters:
+        - $ref: '#/components/parameters/BoardId'
+      responses:
+        '204':
+          description: Удалена
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /projects/{projectId}/subsystems:
+    get:
+      operationId: listSubsystems
+      tags: [Subsystems]
+      summary: Направления проекта
+      description: 'Право: `task-view`.'
+      x-permission: task-view
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubsystemList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      operationId: createSubsystem
+      tags: [Subsystems]
+      summary: Создать направление
+      description: 'Право: `subsystem-manage`.'
+      x-permission: subsystem-manage
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NameRequest'
+      responses:
+        '201':
+          description: Создано
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subsystem'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /subsystems/{subsystemId}:
+    patch:
+      operationId: updateSubsystem
+      tags: [Subsystems]
+      summary: Переименовать направление
+      description: 'Право: `subsystem-manage`.'
+      x-permission: subsystem-manage
+      parameters:
+        - $ref: '#/components/parameters/SubsystemId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NameRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subsystem'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      operationId: deleteSubsystem
+      tags: [Subsystems]
+      summary: Удалить направление с переносом задач
+      description: 'moveTo — UUID другого направления или none; обязателен, если у направления есть задачи. Право: `subsystem-manage`.'
+      x-permission: subsystem-manage
+      parameters:
+        - $ref: '#/components/parameters/SubsystemId'
+        - name: moveTo
+          in: query
+          description: UUID направления или none
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Удалено
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /projects/{projectId}/tags:
+    get:
+      operationId: listTags
+      tags: [Tags]
+      summary: Теги проекта
+      description: 'Право: `task-view`.'
+      x-permission: task-view
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - name: search
+          in: query
+          schema:
+            type: string
+            maxLength: 100
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TagList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      operationId: createTag
+      tags: [Tags]
+      summary: Создать тег (на лету из задачи)
+      description: 'Право: `tag-create`.'
+      x-permission: tag-create
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NameRequest'
+      responses:
+        '201':
+          description: Создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tag'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /tags/{tagId}:
+    patch:
+      operationId: updateTag
+      tags: [Tags]
+      summary: Переименовать тег
+      description: 'Право: `tag-manage`.'
+      x-permission: tag-manage
+      parameters:
+        - $ref: '#/components/parameters/TagId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NameRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tag'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      operationId: deleteTag
+      tags: [Tags]
+      summary: Удалить тег (снимается со всех задач)
+      description: 'Право: `tag-manage`.'
+      x-permission: tag-manage
+      parameters:
+        - $ref: '#/components/parameters/TagId'
+      responses:
+        '204':
+          description: Удалён
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /projects/{projectId}/tasks:
+    get:
+      operationId: listTasks
+      tags: [Tasks]
+      summary: 'Список «Все задачи» (строки Task и Bug, фильтры, пагинация)'
+      description: 'Строка попадает в результат, если подходит она сама или любая её подзадача (docs/backend/05). Неизвестный UUID в фильтре игнорируется (docs/backend/00, раздел 12). Режим archived=true - только архивные Task и Bug. Право: `task-view`.'
+      x-permission: task-view
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - name: q
+          in: query
+          description: Подстрока названия; по ключу ищется только запрос, похожий на номер (12, -12, DEMO-12; без учёта регистра). Остальные запросы (de, mo, demo) ищут только по названию
+          schema:
+            type: string
+            maxLength: 100
+        - name: status
+          in: query
+          description: UUID статусов через запятую
+          style: form
+          explode: false
+          schema:
+            type: array
+            maxItems: 50
+            items:
+              type: string
+              format: uuid
+        - name: assignee
+          in: query
+          description: UUID участников, me, none через запятую
+          style: form
+          explode: false
+          schema:
+            type: array
+            maxItems: 50
+            items:
+              anyOf:
+                - type: string
+                  format: uuid
+                - type: string
+                  enum: [me, none]
+        - name: reviewer
+          in: query
+          description: UUID участников, me, none через запятую
+          style: form
+          explode: false
+          schema:
+            type: array
+            maxItems: 50
+            items:
+              anyOf:
+                - type: string
+                  format: uuid
+                - type: string
+                  enum: [me, none]
+        - name: priority
+          in: query
+          description: low, medium, high, critical через запятую
+          style: form
+          explode: false
+          schema:
+            type: array
+            maxItems: 50
+            items:
+              $ref: '#/components/schemas/Priority'
+        - name: type
+          in: query
+          description: task, bug через запятую
+          style: form
+          explode: false
+          schema:
+            type: array
+            maxItems: 50
+            items:
+              type: string
+              enum: [task, bug]
+        - name: subsystem
+          in: query
+          description: UUID направлений или none через запятую
+          style: form
+          explode: false
+          schema:
+            type: array
+            maxItems: 50
+            items:
+              anyOf:
+                - type: string
+                  format: uuid
+                - type: string
+                  enum: [none]
+        - name: tag
+          in: query
+          description: UUID тегов через запятую
+          style: form
+          explode: false
+          schema:
+            type: array
+            maxItems: 50
+            items:
+              type: string
+              format: uuid
+        - name: archived
+          in: query
+          description: true - только архивные (нужен task-restore)
+          schema:
+            type: boolean
+        - name: sort
+          in: query
+          description: Поле и направление; по умолчанию updatedAt:desc
+          schema:
+            type: string
+            enum:
+              - key:asc
+              - key:desc
+              - priority:asc
+              - priority:desc
+              - dueDate:asc
+              - dueDate:desc
+              - updatedAt:asc
+              - updatedAt:desc
+            default: updatedAt:desc
+        - name: page
+          in: query
+          description: С 1
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: size
+          in: query
+          description: 10, 25 или 50
+          schema:
+            type: integer
+            enum: [10, 25, 50]
+            default: 25
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      operationId: createTask
+      tags: [Tasks]
+      summary: Создать задачу или подзадачу
+      description: >
+        В теле null у statusId, priority и parentId равен отсутствию поля.
+        Причины 422, которые не выражает схема: в tagIds больше 50 значений - fields.tagIds = too_many; повторы в tagIds - fields.tagIds = duplicate; type = subtask без parentId - fields.parentId = required; parentId у task и bug - fields.parentId = not_allowed.
+        Право: `task-create`.
+      x-permission: task-create
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTaskRequest'
+      responses:
+        '201':
+          description: Создана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /projects/{projectId}/tasks/by-key/{key}:
+    get:
+      operationId: getTaskByKey
+      tags: [Tasks]
+      summary: Задача по ключу PROJ-123
+      description: 'Префикс ключа должен совпасть с ключом проекта из пути, иначе 404. Право: `task-view`.'
+      x-permission: task-view
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/TaskKey'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /projects/{projectId}/tasks/search:
+    get:
+      operationId: searchTasks
+      tags: [Tasks]
+      summary: Поиск задач для выбора родителя и связи
+      description: 'Право: `task-view`.'
+      x-permission: task-view
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - name: q
+          in: query
+          description: Подстрока названия; по ключу ищется только запрос, похожий на номер (12, -12, DEMO-12; без учёта регистра). Остальные запросы (de, mo, demo) ищут только по названию; пусто - последние обновлённые
+          schema:
+            type: string
+            maxLength: 100
+        - name: types
+          in: query
+          description: task, bug, subtask через запятую
+          style: form
+          explode: false
+          schema:
+            type: array
+            maxItems: 50
+            uniqueItems: true
+            items:
+              $ref: '#/components/schemas/TaskType'
+        - name: excludeId
+          in: query
+          description: Исключить задачу
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          description: 1-20, по умолчанию 10
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+            default: 10
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskSearchResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /tasks/{taskId}:
+    patch:
+      operationId: updateTask
+      tags: [Tasks]
+      summary: Изменить поля задачи (статус только через move)
+      description: >
+        tagIds заменяет набор целиком. В PATCH отсутствие поля - не менять, null - очистить (только у assigneeId, reviewerId, subsystemId, dueDate, estimateMinutes, description); null у title, type, priority - 422, fields.<поле> = invalid.
+        Причины 422, которые не выражает схема: type = subtask, а также любой type у подзадачи - fields.type = locked; statusId в теле - fields.statusId = use_move; parentId в теле - fields.parentId = immutable; в tagIds больше 50 значений - fields.tagIds = too_many; повторы в tagIds - fields.tagIds = duplicate.
+        Право: `task-update`.
+      x-permission: task-update
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTaskRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /tasks/{taskId}/subtasks:
+    get:
+      operationId: listSubtasks
+      tags: [Tasks]
+      summary: Подзадачи по номеру
+      description: 'Право: `task-view`.'
+      x-permission: task-view
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskSummaryList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /tasks/{taskId}/archive:
+    post:
+      operationId: archiveTask
+      tags: [Tasks]
+      summary: Архивировать задачу вместе с её подзадачами
+      description: 'Свою задачу (reporter) может любой с ключом, чужую - admin и owner. Право: `task-archive`.'
+      x-permission: task-archive
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /tasks/{taskId}/restore:
+    post:
+      operationId: restoreTask
+      tags: [Tasks]
+      summary: Восстановить задачу и все её подзадачи
+      description: 'Восстановление родителя возвращает все его подзадачи, в том числе архивированные отдельно. Право: `task-restore`.'
+      x-permission: task-restore
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /tasks/{taskId}/history:
+    get:
+      operationId: listTaskHistory
+      tags: [Tasks]
+      summary: История изменений от новых к старым
+      description: 'Право: `task-view`.'
+      x-permission: task-view
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HistoryList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /tasks/{taskId}/links:
+    post:
+      operationId: createTaskLink
+      tags: [Links]
+      summary: Добавить связь
+      description: 'Цикл blocks запрещён: 409 link_cycle. При проверке учитываются связи всех задач проекта, в том числе архивных. Право: `link-manage`.'
+      x-permission: link-manage
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateLinkRequest'
+      responses:
+        '201':
+          description: Создана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /tasks/{taskId}/links/{linkId}:
+    delete:
+      operationId: deleteTaskLink
+      tags: [Links]
+      summary: Удалить связь (с любой из сторон)
+      description: 'Право: `link-manage`.'
+      x-permission: link-manage
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/LinkId'
+      responses:
+        '204':
+          description: Удалена
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /tasks/{taskId}/urls:
+    post:
+      operationId: createTaskUrl
+      tags: [Links]
+      summary: Добавить ссылку
+      description: 'Право: `link-manage`.'
+      x-permission: link-manage
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUrlRequest'
+      responses:
+        '201':
+          description: Создана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskUrlResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /tasks/{taskId}/urls/{urlId}:
+    delete:
+      operationId: deleteTaskUrl
+      tags: [Links]
+      summary: Удалить ссылку
+      description: 'Право: `link-manage`.'
+      x-permission: link-manage
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/UrlId'
+      responses:
+        '204':
+          description: Удалена
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /boards/{boardId}/cards:
+    get:
+      operationId: getBoardCards
+      tags: [Boards]
+      summary: Карточки доски по колонкам
+      description: >
+        Все колонки доски по порядку; внутри колонки по rank. Неизвестный UUID в пользовательском фильтре игнорируется (docs/backend/00, раздел 12). Учитываются базовый фильтр доски, пользовательские фильтры и окно Done. Не кешируется.
+        Право: `board-view`.
+      x-permission: board-view
+      parameters:
+        - $ref: '#/components/parameters/BoardId'
+        - name: q
+          in: query
+          description: Подстрока названия; по ключу ищется только запрос, похожий на номер (12, -12, DEMO-12; без учёта регистра). Остальные запросы (de, mo, demo) ищут только по названию
+          schema:
+            type: string
+            maxLength: 100
+        - name: assignee
+          in: query
+          description: UUID участников, me, none через запятую
+          style: form
+          explode: false
+          schema:
+            type: array
+            maxItems: 50
+            items:
+              anyOf:
+                - type: string
+                  format: uuid
+                - type: string
+                  enum: [me, none]
+        - name: reviewer
+          in: query
+          description: UUID участников, me, none через запятую
+          style: form
+          explode: false
+          schema:
+            type: array
+            maxItems: 50
+            items:
+              anyOf:
+                - type: string
+                  format: uuid
+                - type: string
+                  enum: [me, none]
+        - name: priority
+          in: query
+          description: low, medium, high, critical через запятую
+          style: form
+          explode: false
+          schema:
+            type: array
+            maxItems: 50
+            items:
+              $ref: '#/components/schemas/Priority'
+        - name: type
+          in: query
+          description: task, bug, subtask через запятую
+          style: form
+          explode: false
+          schema:
+            type: array
+            maxItems: 50
+            items:
+              $ref: '#/components/schemas/TaskType'
+        - name: subsystem
+          in: query
+          description: UUID направлений или none через запятую
+          style: form
+          explode: false
+          schema:
+            type: array
+            maxItems: 50
+            items:
+              anyOf:
+                - type: string
+                  format: uuid
+                - type: string
+                  enum: [none]
+        - name: tag
+          in: query
+          description: UUID тегов через запятую
+          style: form
+          explode: false
+          schema:
+            type: array
+            maxItems: 50
+            items:
+              type: string
+              format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BoardCards'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /tasks/{taskId}/move:
+    post:
+      operationId: moveTask
+      tags: [Tasks]
+      summary: Сменить статус и позицию карточки
+      description: >
+        prevId и nextId - соседи, которых пользователь видит на доске в момент переноса: prevId - карточка непосредственно ВЫШЕ, nextId - непосредственно НИЖЕ.
+        Карточка встаёт между ними, даже если между этими соседями есть задачи, скрытые фильтром доски, окном Done или архивные: фронт их не передаёт и не знает о них.
+        Если соседей нет, карточка встаёт в конец колонки; если передан один сосед, вплотную к нему.
+        409 stale_position - если сосед (prevId или nextId) не найден в проекте (в том числе неизвестный UUID), архивирован, находится в другом статусе, чем целевой, или совпадает с переносимой задачей; фронт откатывает карточку и перезапрашивает доску.
+        В теле запроса null у prevId и nextId равен отсутствию поля.
+        Повтор с теми же соседями при отсутствии изменений на доске всегда успешен.
+        reason обязателен, если статус меняется на статус с requiresReason; сохраняется комментарием status_reason.
+        Перестановка внутри колонки не меняет updatedAt и историю. Если статус не меняется (в том числе повторный запрос), reason игнорируется (200, комментарий не создаётся).
+        Право: `task-move`.
+      x-permission: task-move
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MoveTaskRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /tasks/{taskId}/comments:
+    get:
+      operationId: listComments
+      tags: [Comments]
+      summary: Комментарии (курсорная выдача, от старых к новым)
+      description: 'Без before - последние limit комментариев; с before - более ранние. hasMore - есть ли ещё более ранние. Право: `task-view`.'
+      x-permission: task-view
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - name: before
+          in: query
+          description: Курсор - значение nextCursor предыдущего ответа (непрозрачная строка); не разбирается - 422
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      operationId: createComment
+      tags: [Comments]
+      summary: Написать комментарий
+      description: 'Право: `comment-create`.'
+      x-permission: comment-create
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCommentRequest'
+      responses:
+        '201':
+          description: Создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /comments/{commentId}:
+    patch:
+      operationId: updateComment
+      tags: [Comments]
+      summary: Изменить свой комментарий (правит только автор, любая роль)
+      description: 'Чужой комментарий не может править никто, включая admin и owner: 403 forbidden (admin и owner могут его только удалить). Право: `comment-update`.'
+      x-permission: comment-update
+      parameters:
+        - $ref: '#/components/parameters/CommentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCommentRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      operationId: deleteComment
+      tags: [Comments]
+      summary: Удалить комментарий (свой; admin и owner - любой)
+      description: 'Право: `comment-delete`.'
+      x-permission: comment-delete
+      parameters:
+        - $ref: '#/components/parameters/CommentId'
+      responses:
+        '204':
+          description: Удалён
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /tasks/{taskId}/worklogs:
+    get:
+      operationId: listWorklogs
+      tags: [Worklogs]
+      summary: Списания времени по задаче
+      description: 'Право: `task-view`.'
+      x-permission: task-view
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorklogList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      operationId: createWorklog
+      tags: [Worklogs]
+      summary: Списать время
+      description: 'Право: `worklog-create`.'
+      x-permission: worklog-create
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWorklogRequest'
+      responses:
+        '201':
+          description: Создана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Worklog'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /worklogs/{worklogId}:
+    patch:
+      operationId: updateWorklog
+      tags: [Worklogs]
+      summary: Изменить списание (своё; admin и owner - любое)
+      description: 'Право: `worklog-update`.'
+      x-permission: worklog-update
+      parameters:
+        - $ref: '#/components/parameters/WorklogId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateWorklogRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Worklog'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      operationId: deleteWorklog
+      tags: [Worklogs]
+      summary: Удалить списание (своё; admin и owner - любое)
+      description: 'Право: `worklog-delete`.'
+      x-permission: worklog-delete
+      parameters:
+        - $ref: '#/components/parameters/WorklogId'
+      responses:
+        '204':
+          description: Удалено
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /tasks/{taskId}/watch:
+    post:
+      operationId: watchTask
+      tags: [Watches]
+      summary: Подписаться на задачу (идемпотентно)
+      description: 'Право: `watch-toggle`.'
+      x-permission: watch-toggle
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '204':
+          description: Подписан
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      operationId: unwatchTask
+      tags: [Watches]
+      summary: Отписаться от задачи (идемпотентно)
+      description: 'Право: `watch-toggle`.'
+      x-permission: watch-toggle
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '204':
+          description: Отписан
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /notifications:
+    get:
+      operationId: listNotifications
+      tags: [Notifications]
+      summary: Уведомления текущего пользователя (от новых к старым)
+      description: 'Право: `none` (достаточно сессии).'
+      x-permission: none
+      parameters:
+        - name: before
+          in: query
+          description: Курсор - значение nextCursor предыдущего ответа (непрозрачная строка); не разбирается - 422
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /notifications/unread-count:
+    get:
+      operationId: getUnreadCount
+      tags: [Notifications]
+      summary: Число непрочитанных (опрос раз в 30 секунд)
+      description: 'Право: `none` (достаточно сессии).'
+      x-permission: none
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnreadCount'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /notifications/read-all:
+    post:
+      operationId: markAllNotificationsRead
+      tags: [Notifications]
+      summary: Прочитать все
+      description: 'Право: `none` (достаточно сессии).'
+      x-permission: none
+      responses:
+        '204':
+          description: Все помечены прочитанными
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /notifications/{notificationId}/read:
+    post:
+      operationId: markNotificationRead
+      tags: [Notifications]
+      summary: Прочитать уведомление (идемпотентно)
+      description: 'Право: `none` (достаточно сессии).'
+      x-permission: none
+      parameters:
+        - name: notificationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Помечено прочитанным
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /telegram/webhook:
+    post:
+      operationId: receiveTelegramWebhook
+      tags: [Telegram]
+      summary: Приём обновлений Telegram (режим webhook)
+      description: 'Проверяется заголовок X-Telegram-Bot-Api-Secret-Token; обрабатываются команды /start <token> и нажатия кнопок подтверждения (callback_query). Неверный секрет - 403; в режиме polling ручка выключена - 404. Публичная ручка, сессия не нужна.'
+      x-public: true
+      security: []
+      parameters:
+        - name: X-Telegram-Bot-Api-Secret-Token
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Принято
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sid
+  parameters:
+    InvitationToken:
+      name: token
+      in: path
+      required: true
+      schema:
+        type: string
+    UserId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ProjectUuid:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ProjectId:
+      name: projectId
+      in: path
+      required: true
+      description: UUID проекта
+      schema:
+        type: string
+        format: uuid
+    MemberUserId:
+      name: userId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    StatusId:
+      name: statusId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    BoardId:
+      name: boardId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    SubsystemId:
+      name: subsystemId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    TagId:
+      name: tagId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    TaskId:
+      name: taskId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    TaskKey:
+      name: key
+      in: path
+      required: true
+      description: Ключ задачи вида PROJ-123 (без учёта регистра)
+      schema:
+        type: string
+        pattern: '^[A-Za-z][A-Za-z0-9]{1,5}-[0-9]+$'
+    LinkId:
+      name: linkId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    UrlId:
+      name: urlId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CommentId:
+      name: commentId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    WorklogId:
+      name: worklogId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  responses:
+    BadRequest:
+      description: Неверный формат запроса (code bad_request)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalError:
+      description: Ошибка сервера (code internal_error, в error.requestId - идентификатор запроса)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthenticated:
+      description: Нет сессии (code unauthenticated)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InvalidCredentials:
+      description: Неверный логин или пароль (code invalid_credentials)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Нет права (code forbidden, account_deactivated, password_change_required)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Не найдено (code not_found)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InvitationInvalid:
+      description: Приглашение недействительно (code invitation_invalid)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: >
+        Конфликт состояния (code username_taken, telegram_already_linked, last_login_method,
+        telegram_not_linked, last_owner, user_deactivated, cannot_reissue_self, cannot_deactivate_self,
+        project_key_taken, already_member, already_owner, owner_role_locked,
+        cannot_change_self, cannot_remove_self,
+        name_taken, move_to_required, last_done_status, last_board, board_would_be_empty,
+        task_archived, parent_archived, task_already_archived, task_not_archived, link_exists, link_cycle, stale_position)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ValidationFailed:
+      description: Не прошла валидация (code validation_failed, поле fields)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    TooManyAttempts:
+      description: Превышен лимит попыток (code too_many_attempts)
+      headers:
+        Retry-After:
+          description: Через сколько секунд можно повторить запрос
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    ErrorCode:
+      type: string
+      description: Стабильный код ошибки (snake_case); HTTP-статус и состав details по кодам - в docs/backend/00 раздел 3
+      enum:
+        - unauthenticated
+        - invalid_credentials
+        - forbidden
+        - account_deactivated
+        - password_change_required
+        - not_found
+        - invitation_invalid
+        - bad_request
+        - validation_failed
+        - too_many_attempts
+        - internal_error
+        - username_taken
+        - telegram_already_linked
+        - last_login_method
+        - telegram_not_linked
+        - last_owner
+        - user_deactivated
+        - cannot_reissue_self
+        - cannot_deactivate_self
+        - project_key_taken
+        - already_member
+        - already_owner
+        - owner_role_locked
+        - cannot_change_self
+        - cannot_remove_self
+        - name_taken
+        - move_to_required
+        - last_done_status
+        - last_board
+        - board_would_be_empty
+        - task_archived
+        - parent_archived
+        - task_already_archived
+        - task_not_archived
+        - link_exists
+        - link_cycle
+        - stale_position
+    FieldErrorReason:
+      type: string
+      description: Причина ошибки поля в error.fields (при validation_failed и name_taken)
+      enum:
+        - required
+        - invalid
+        - too_long
+        - too_many
+        - taken
+        - immutable
+        - locked
+        - mismatch
+        - empty
+        - duplicate
+        - limit
+        - not_found
+        - not_active
+        - not_member
+        - not_allowed
+        - reason_required
+        - archived
+        - same_task
+        - use_move
+        - in_future
+        - invalid_order
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              $ref: '#/components/schemas/ErrorCode'
+            message:
+              type: string
+              description: Текст на русском
+            requestId:
+              type: string
+              description: Только в теле 5xx; равен заголовку X-Request-Id ответа
+            fields:
+              type: object
+              description: Только validation_failed и name_taken; ключ - имя поля запроса
+              additionalProperties:
+                $ref: '#/components/schemas/FieldErrorReason'
+            details:
+              type: object
+              description: Данные для показа пользователю; состав зависит от code (tag - уже существующий тег при name_taken у тега)
+              properties:
+                projects:
+                  type: array
+                  description: last_owner - названия проектов
+                  items:
+                    type: string
+                boards:
+                  type: array
+                  description: board_would_be_empty - названия досок
+                  items:
+                    type: string
+                userIds:
+                  type: array
+                  description: already_member - UUID пользователей, уже состоящих в проекте
+                  items:
+                    type: string
+                    format: uuid
+                tag:
+                  $ref: '#/components/schemas/Tag'
+    UserStatus:
+      type: string
+      enum: [invited, active, deactivated]
+    TelegramInfo:
+      type: object
+      required: [linked, username]
+      properties:
+        linked:
+          type: boolean
+        username:
+          type: string
+          nullable: true
+    User:
+      type: object
+      required:
+        [id, name, username, status, hasPassword, telegram, notifyTelegram]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        username:
+          type: string
+          nullable: true
+          pattern: '^[a-z0-9_]{3,32}$'
+        status:
+          $ref: '#/components/schemas/UserStatus'
+        hasPassword:
+          type: boolean
+        telegram:
+          $ref: '#/components/schemas/TelegramInfo'
+        notifyTelegram:
+          type: boolean
+    UserResponse:
+      type: object
+      required: [user]
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+    MeResponse:
+      type: object
+      required: [user, permissions, mustChangePassword]
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        permissions:
+          type: array
+          description: Глобальные ключи разрешений (только у системного администратора)
+          items:
+            $ref: '#/components/schemas/GlobalPermission'
+        mustChangePassword:
+          type: boolean
+    GlobalPermission:
+      type: string
+      description: Глобальные ключи системного администратора (GET /auth/me)
+      enum:
+        - user-list
+        - user-invite
+        - user-reissue-access
+        - user-deactivate
+        - project-create
+        - project-list-all
+        - project-change-owner
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+          maxLength: 128
+    TelegramStartResponse:
+      type: object
+      required: [token, deepLink, expiresAt]
+      properties:
+        token:
+          type: string
+        deepLink:
+          type: string
+          example: https://t.me/example_bot?start=TOKEN
+        expiresAt:
+          type: string
+          format: date-time
+    TelegramStatusRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          description: Токен из ответа start
+    TelegramStatusResponse:
+      type: object
+      required: [status, user, telegramUsername]
+      properties:
+        status:
+          type: string
+          enum:
+            [
+              waiting,
+              expired,
+              confirmed,
+              not_linked,
+              deactivated,
+              already_linked,
+            ]
+        user:
+          type: object
+          nullable: true
+          description: Только для целей login и link при confirmed, иначе null
+          allOf:
+            - $ref: '#/components/schemas/User'
+        telegramUsername:
+          type: string
+          nullable: true
+          description: Только для цели invite при confirmed (null, если у Telegram-аккаунта нет username), иначе null
+    InvitationInfo:
+      type: object
+      required: [name, kind, username]
+      properties:
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [new, reissue]
+          description: >
+            new - у пользователя ещё нет логина, при принятии username обязателен (так бывает и после "Новой ссылки" для приглашённого, который не успел выбрать логин);
+            reissue - логин уже есть, он возвращается в username и при принятии не передаётся
+        username:
+          type: string
+          nullable: true
+          description: Только для kind=reissue; для kind=new - null
+    UsernameAvailability:
+      type: object
+      required: [available, reason]
+      properties:
+        available:
+          type: boolean
+        reason:
+          type: string
+          enum: [taken, invalid]
+          nullable: true
+    AcceptInvitationRequest:
+      type: object
+      description: Передайте либо password, либо telegramToken
+      properties:
+        username:
+          type: string
+          pattern: '^[a-z0-9_]{3,32}$'
+          description: >
+            Обязателен для kind=new (в обоих способах), не передаётся для reissue.
+            Только в нижнем регистре, ^[a-z0-9_]{3,32}$: заглавные сервер не приводит, а отклоняет (422 fields.username = invalid). Приведение к нижнему регистру - на фронте
+        password:
+          type: string
+          minLength: 8
+          maxLength: 128
+          description: Не короче 8 символов, хотя бы одна буква и одна цифра
+        telegramToken:
+          type: string
+      oneOf:
+        - required: [password]
+        - required: [telegramToken]
+    UpdateProfileRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+    ChangePasswordRequest:
+      type: object
+      required: [next]
+      properties:
+        current:
+          type: string
+          description: >
+            Текущий пароль. Обязателен всегда, кроме случая mustChangePassword = true (первая смена пароля системного администратора).
+            Если пароля нет, запрос отклоняется: 422 с fields.current = required
+        next:
+          type: string
+          minLength: 8
+          maxLength: 128
+    UpdateNotificationsRequest:
+      type: object
+      required: [telegram]
+      properties:
+        telegram:
+          type: boolean
+    AdminUser:
+      type: object
+      required:
+        [
+          id,
+          name,
+          username,
+          status,
+          hasPassword,
+          telegramLinked,
+          projectsCount,
+          createdAt,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        username:
+          type: string
+          nullable: true
+        status:
+          $ref: '#/components/schemas/UserStatus'
+        hasPassword:
+          type: boolean
+        telegramLinked:
+          type: boolean
+        projectsCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+    AdminUserList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminUser'
+    InviteUserRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+    Invitation:
+      type: object
+      required: [url, expiresAt]
+      properties:
+        url:
+          type: string
+          description: Показывается один раз
+        expiresAt:
+          type: string
+          format: date-time
+    InviteUserResponse:
+      type: object
+      required: [user, invitation]
+      properties:
+        user:
+          $ref: '#/components/schemas/AdminUser'
+        invitation:
+          $ref: '#/components/schemas/Invitation'
+    ReissueResponse:
+      type: object
+      required: [invitation]
+      properties:
+        invitation:
+          $ref: '#/components/schemas/Invitation'
+    ProjectTemplate:
+      type: string
+      enum: [dev, simple]
+    ProjectRole:
+      type: string
+      enum: [owner, admin, member, viewer]
+    AssignableRole:
+      type: string
+      description: Роли, которые можно назначить через ручки участников (owner только при создании и передаче)
+      enum: [admin, member, viewer]
+    ProjectPermission:
+      type: string
+      description: >
+        Ключи проекта (docs/13). Тип ключа на фронте берётся из этого enum (union-тип), а не из x-permission;
+        x-permission каждой операции совпадает с одним из значений GlobalPermission или ProjectPermission.
+        Ключ project-change-owner - только глобальный, в проектном списке их нет.
+      enum:
+        - project-view
+        - board-view
+        - task-view
+        - member-list
+        - comment-create
+        - watch-toggle
+        - comment-update
+        - comment-delete
+        - task-create
+        - task-update
+        - task-move
+        - link-manage
+        - attachment-add
+        - worklog-create
+        - tag-create
+        - task-archive
+        - attachment-delete
+        - worklog-update
+        - worklog-delete
+        - task-restore
+        - project-update
+        - status-manage
+        - board-manage
+        - subsystem-manage
+        - tag-manage
+        - member-add
+        - member-remove
+        - member-role-change
+    Project:
+      type: object
+      required: [id, key, name, description, template, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        key:
+          type: string
+          pattern: '^[A-Z][A-Z0-9]{1,5}$'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        description:
+          type: string
+          nullable: true
+          maxLength: 5000
+        template:
+          $ref: '#/components/schemas/ProjectTemplate'
+        createdAt:
+          type: string
+          format: date-time
+    ProjectListItem:
+      type: object
+      required: [id, key, name, role]
+      properties:
+        id:
+          type: string
+          format: uuid
+        key:
+          type: string
+        name:
+          type: string
+        role:
+          $ref: '#/components/schemas/ProjectRole'
+    ProjectListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProjectListItem'
+    ProjectMe:
+      type: object
+      required: [userId, role, permissions]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        role:
+          $ref: '#/components/schemas/ProjectRole'
+        permissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProjectPermission'
+    UpdateProjectRequest:
+      type: object
+      description: Ключ менять нельзя (422, fields.key = immutable)
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        description:
+          type: string
+          nullable: true
+          maxLength: 5000
+    ChangeOwnerRequest:
+      type: object
+      required: [userId]
+      properties:
+        userId:
+          type: string
+          format: uuid
+    CreateProjectRequest:
+      type: object
+      required: [name, key, template, ownerId]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        key:
+          type: string
+          description: Приводится к верхнему регистру
+          pattern: '^[A-Za-z][A-Za-z0-9]{1,5}$'
+        template:
+          $ref: '#/components/schemas/ProjectTemplate'
+        ownerId:
+          type: string
+          format: uuid
+        description:
+          type: string
+          nullable: true
+          maxLength: 5000
+    ProjectOwner:
+      type: object
+      required: [userId, name, username]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        username:
+          type: string
+          nullable: true
+    AdminProject:
+      type: object
+      required: [id, key, name, template, owner, membersCount, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        key:
+          type: string
+        name:
+          type: string
+        template:
+          $ref: '#/components/schemas/ProjectTemplate'
+        owner:
+          $ref: '#/components/schemas/ProjectOwner'
+        membersCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+    AdminProjectList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminProject'
+    Member:
+      type: object
+      required: [userId, name, username, role, active]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        username:
+          type: string
+          nullable: true
+        role:
+          $ref: '#/components/schemas/ProjectRole'
+        active:
+          type: boolean
+          description: false только у деактивированного пользователя; у приглашённого (invited, например после "Новой ссылки") true
+    MemberList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Member'
+    MemberResponse:
+      type: object
+      required: [member]
+      properties:
+        member:
+          $ref: '#/components/schemas/Member'
+    MemberCandidate:
+      type: object
+      required: [userId, name, username]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        username:
+          type: string
+    MemberCandidateList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/MemberCandidate'
+    AddMembersRequest:
+      type: object
+      required: [userIds, role]
+      properties:
+        userIds:
+          type: array
+          minItems: 1
+          maxItems: 50
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+        role:
+          $ref: '#/components/schemas/AssignableRole'
+    ChangeMemberRoleRequest:
+      type: object
+      required: [role]
+      properties:
+        role:
+          $ref: '#/components/schemas/AssignableRole'
+    StatusColor:
+      type: string
+      enum: [gray, blue, cyan, green, yellow, orange, red, purple]
+    StatusCategory:
+      type: string
+      enum: [backlog, todo, in_progress, done]
+    Priority:
+      type: string
+      enum: [low, medium, high, critical]
+    TaskType:
+      type: string
+      enum: [task, bug, subtask]
+    NameRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Уникально в проекте без учёта регистра (409 name_taken)
+    BoardRef:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+    Status:
+      type: object
+      required:
+        [id, name, color, category, requiresReason, position, taskCount, boards]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        color:
+          $ref: '#/components/schemas/StatusColor'
+        category:
+          $ref: '#/components/schemas/StatusCategory'
+        requiresReason:
+          type: boolean
+        position:
+          type: integer
+          minimum: 0
+        taskCount:
+          type: integer
+          description: Все задачи в статусе, включая архивные
+        boards:
+          type: array
+          items:
+            $ref: '#/components/schemas/BoardRef'
+    StatusList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Status'
+    CreateStatusRequest:
+      type: object
+      required: [name, color, category]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        color:
+          $ref: '#/components/schemas/StatusColor'
+        category:
+          $ref: '#/components/schemas/StatusCategory'
+        requiresReason:
+          type: boolean
+          default: false
+    UpdateStatusRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        color:
+          $ref: '#/components/schemas/StatusColor'
+        category:
+          $ref: '#/components/schemas/StatusCategory'
+        requiresReason:
+          type: boolean
+    StatusOrderRequest:
+      type: object
+      required: [ids]
+      properties:
+        ids:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+    BoardColumn:
+      type: object
+      required: [statusId, name, color, category, requiresReason]
+      properties:
+        statusId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        color:
+          $ref: '#/components/schemas/StatusColor'
+        category:
+          $ref: '#/components/schemas/StatusCategory'
+        requiresReason:
+          type: boolean
+          description: Перенос в эту колонку требует причину (диалог причины на доске)
+    BaseFilter:
+      type: object
+      additionalProperties: false
+      description: >
+        Значения внутри поля объединяются по "или", разные поля по "и"; пустое поле ничего не ограничивает.
+        Статуса и значения me здесь нет.
+      properties:
+        assigneeIds:
+          type: array
+          maxItems: 50
+          uniqueItems: true
+          items:
+            type: string
+            description: UUID участника или none
+        reviewerIds:
+          type: array
+          maxItems: 50
+          uniqueItems: true
+          items:
+            type: string
+            description: UUID участника или none
+        priorities:
+          type: array
+          maxItems: 4
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/Priority'
+        types:
+          type: array
+          maxItems: 3
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/TaskType'
+        subsystemIds:
+          type: array
+          maxItems: 50
+          uniqueItems: true
+          items:
+            type: string
+            description: UUID направления или none
+        tagIds:
+          type: array
+          maxItems: 50
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+    Board:
+      type: object
+      required: [id, name, columns, baseFilter, doneWindowDays, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        columns:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/BoardColumn'
+        baseFilter:
+          $ref: '#/components/schemas/BaseFilter'
+        doneWindowDays:
+          type: integer
+          minimum: 1
+          maximum: 365
+        createdAt:
+          type: string
+          format: date-time
+    BoardList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Board'
+    CreateBoardRequest:
+      type: object
+      required: [name, columns]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        columns:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          description: statusId по порядку колонок
+          items:
+            type: string
+            format: uuid
+        baseFilter:
+          $ref: '#/components/schemas/BaseFilter'
+        doneWindowDays:
+          type: integer
+          minimum: 1
+          maximum: 365
+          default: 14
+    UpdateBoardRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        columns:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+        baseFilter:
+          $ref: '#/components/schemas/BaseFilter'
+        doneWindowDays:
+          type: integer
+          minimum: 1
+          maximum: 365
+    Subsystem:
+      type: object
+      required: [id, name, taskCount]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        taskCount:
+          type: integer
+    SubsystemList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Subsystem'
+    Tag:
+      type: object
+      required: [id, name, taskCount]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        taskCount:
+          type: integer
+    TagList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tag'
+    UserRef:
+      type: object
+      required: [userId, name, username, active]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        username:
+          type: string
+          nullable: true
+        active:
+          type: boolean
+          description: false только у деактивированного пользователя; у приглашённого (invited) true
+    StatusRef:
+      type: object
+      required: [id, name, color, category]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        color:
+          $ref: '#/components/schemas/StatusColor'
+        category:
+          $ref: '#/components/schemas/StatusCategory'
+    IdName:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+    TaskParentRef:
+      type: object
+      required: [id, key, title]
+      properties:
+        id:
+          type: string
+          format: uuid
+        key:
+          type: string
+        title:
+          type: string
+    TaskSummary:
+      type: object
+      description: Строка списка, подзадача, результат раскрытия
+      required:
+        [
+          id,
+          key,
+          type,
+          title,
+          status,
+          priority,
+          assignee,
+          dueDate,
+          isOverdue,
+          subsystem,
+          tags,
+          estimateMinutes,
+          spentMinutes,
+          updatedAt,
+          subtaskCount,
+          parent,
+          archived,
+          blocked,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        key:
+          type: string
+        type:
+          $ref: '#/components/schemas/TaskType'
+        title:
+          type: string
+        status:
+          $ref: '#/components/schemas/StatusRef'
+        priority:
+          $ref: '#/components/schemas/Priority'
+        assignee:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/UserRef'
+          nullable: true
+        dueDate:
+          type: string
+          format: date
+          nullable: true
+        isOverdue:
+          type: boolean
+          description: Срок раньше сегодняшней даты UTC, статус не done, задача не архивная
+        subsystem:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/IdName'
+          nullable: true
+        tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/IdName'
+        estimateMinutes:
+          type: integer
+          nullable: true
+        spentMinutes:
+          type: integer
+          description: Сумма списаний времени по задаче
+        updatedAt:
+          type: string
+          format: date-time
+        subtaskCount:
+          type: integer
+          description: Неархивные подзадачи, независимо от фильтров
+        parent:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/TaskParentRef'
+          nullable: true
+        archived:
+          type: boolean
+        blocked:
+          type: boolean
+          description: false до пакета 5
+    TaskSummaryList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskSummary'
+    TaskPage:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskSummary'
+        total:
+          type: integer
+          description: Число строк Task и Bug
+    TaskDetail:
+      allOf:
+        - $ref: '#/components/schemas/TaskSummary'
+        - type: object
+          required:
+            [
+              projectId,
+              description,
+              reviewer,
+              reporter,
+              watching,
+              commentCount,
+              subtasksDone,
+              subtasksEstimateMinutes,
+              subtasksSpentMinutes,
+              createdAt,
+              resolvedAt,
+              archivedAt,
+              links,
+              urls,
+            ]
+          properties:
+            projectId:
+              type: string
+              format: uuid
+            description:
+              type: string
+              nullable: true
+              maxLength: 5000
+            reviewer:
+              type: object
+              allOf:
+                - $ref: '#/components/schemas/UserRef'
+              nullable: true
+            reporter:
+              $ref: '#/components/schemas/UserRef'
+            watching:
+              type: boolean
+              description: Подписан ли текущий пользователь
+            commentCount:
+              type: integer
+              minimum: 0
+              description: Число комментариев задачи (kind comment и status_reason, как в списке вкладки); для счётчика на вкладке "Комментарии"
+            subtasksDone:
+              type: integer
+            subtasksEstimateMinutes:
+              type: integer
+            subtasksSpentMinutes:
+              type: integer
+            createdAt:
+              type: string
+              format: date-time
+            resolvedAt:
+              type: string
+              format: date-time
+              nullable: true
+            archivedAt:
+              type: string
+              format: date-time
+              nullable: true
+            links:
+              type: array
+              description: Пусто до пакета 5
+              items:
+                $ref: '#/components/schemas/TaskLink'
+            urls:
+              type: array
+              description: Пусто до пакета 5
+              items:
+                $ref: '#/components/schemas/TaskUrl'
+    CreateTaskRequest:
+      type: object
+      required: [type, title]
+      properties:
+        type:
+          $ref: '#/components/schemas/TaskType'
+        title:
+          type: string
+          minLength: 1
+          maxLength: 100
+        description:
+          type: string
+          nullable: true
+          maxLength: 5000
+        statusId:
+          type: string
+          format: uuid
+          nullable: true
+          description: По умолчанию первый статус проекта; статус с requiresReason недопустим. null равен отсутствию поля
+        priority:
+          type: string
+          allOf:
+            - $ref: '#/components/schemas/Priority'
+          nullable: true
+          description: По умолчанию medium. null равен отсутствию поля
+        assigneeId:
+          type: string
+          format: uuid
+          nullable: true
+        reviewerId:
+          type: string
+          format: uuid
+          nullable: true
+        subsystemId:
+          type: string
+          format: uuid
+          nullable: true
+        dueDate:
+          type: string
+          format: date
+          nullable: true
+        estimateMinutes:
+          type: integer
+          minimum: 1
+          maximum: 100000
+          nullable: true
+        tagIds:
+          type: array
+          maxItems: 50
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+        parentId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Обязателен для subtask, недопустим для task и bug. null равен отсутствию поля
+    UpdateTaskRequest:
+      type: object
+      description: Статус меняется только через POST /tasks/{taskId}/move, parentId не меняется
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 100
+        description:
+          type: string
+          nullable: true
+          maxLength: 5000
+        type:
+          type: string
+          enum: [task, bug]
+        priority:
+          $ref: '#/components/schemas/Priority'
+        assigneeId:
+          type: string
+          format: uuid
+          nullable: true
+        reviewerId:
+          type: string
+          format: uuid
+          nullable: true
+        subsystemId:
+          type: string
+          format: uuid
+          nullable: true
+        dueDate:
+          type: string
+          format: date
+          nullable: true
+        estimateMinutes:
+          type: integer
+          minimum: 1
+          maximum: 100000
+          nullable: true
+        tagIds:
+          type: array
+          maxItems: 50
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+    HistoryKind:
+      type: string
+      enum:
+        [
+          created,
+          field_changed,
+          link_added,
+          link_removed,
+          url_added,
+          url_removed,
+          tag_added,
+          tag_removed,
+          archived,
+          restored,
+          unassigned_on_member_removal,
+        ]
+    HistoryField:
+      type: string
+      description: parent оставлен в перечне как резерв (родитель после создания не меняется)
+      enum:
+        [
+          status,
+          assignee,
+          reviewer,
+          priority,
+          type,
+          subsystem,
+          dueDate,
+          estimateMinutes,
+          parent,
+        ]
+    HistoryValue:
+      type: object
+      required: [id, label]
+      properties:
+        id:
+          type: string
+          nullable: true
+          description: UUID сущности либо null для скаляров
+        label:
+          type: string
+          description: Название на момент события либо сырое значение (high, 2026-11-03, 150)
+    HistoryEvent:
+      type: object
+      required: [id, kind, field, oldValue, newValue, createdAt, actor]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          $ref: '#/components/schemas/HistoryKind'
+        field:
+          type: string
+          nullable: true
+          description: HistoryField для field_changed и unassigned_on_member_removal (assignee или reviewer); LinkType для link_added и link_removed (тип связи с точки зрения задачи)
+          oneOf:
+            - $ref: '#/components/schemas/HistoryField'
+            - $ref: '#/components/schemas/LinkType'
+        oldValue:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/HistoryValue'
+          nullable: true
+        newValue:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/HistoryValue'
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        actor:
+          $ref: '#/components/schemas/UserRef'
+    HistoryList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/HistoryEvent'
+    LinkTypeInput:
+      type: string
+      enum: [blocks, blocked_by]
+    LinkType:
+      type: string
+      description: С точки зрения читаемой задачи
+      enum: [blocks, blocked_by]
+    LinkedTask:
+      type: object
+      required: [id, key, title, status, archived]
+      properties:
+        id:
+          type: string
+          format: uuid
+        key:
+          type: string
+        title:
+          type: string
+        status:
+          $ref: '#/components/schemas/StatusRef'
+        archived:
+          type: boolean
+    TaskLink:
+      type: object
+      required: [id, type, task]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          $ref: '#/components/schemas/LinkType'
+        task:
+          $ref: '#/components/schemas/LinkedTask'
+    CreateLinkRequest:
+      type: object
+      required: [type, targetTaskId]
+      properties:
+        type:
+          $ref: '#/components/schemas/LinkTypeInput'
+        targetTaskId:
+          type: string
+          format: uuid
+    LinkResponse:
+      type: object
+      required: [link]
+      properties:
+        link:
+          $ref: '#/components/schemas/TaskLink'
+    TaskUrl:
+      type: object
+      required: [id, url, title, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        url:
+          type: string
+          maxLength: 2000
+          pattern: '^https?://'
+        title:
+          type: string
+          nullable: true
+          maxLength: 100
+        createdAt:
+          type: string
+          format: date-time
+    CreateUrlRequest:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          maxLength: 2000
+          pattern: '^https?://'
+        title:
+          type: string
+          nullable: true
+          maxLength: 100
+    TaskUrlResponse:
+      type: object
+      required: [url]
+      properties:
+        url:
+          $ref: '#/components/schemas/TaskUrl'
+    TaskSearchItem:
+      type: object
+      required: [id, key, type, title, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        key:
+          type: string
+        type:
+          $ref: '#/components/schemas/TaskType'
+        title:
+          type: string
+        status:
+          $ref: '#/components/schemas/StatusRef'
+    TaskSearchResult:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/TaskSearchItem'
+    BoardCard:
+      type: object
+      required:
+        [
+          id,
+          key,
+          type,
+          title,
+          priority,
+          dueDate,
+          isOverdue,
+          assignee,
+          tags,
+          parent,
+          blocked,
+          rank,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        key:
+          type: string
+        type:
+          $ref: '#/components/schemas/TaskType'
+        title:
+          type: string
+        priority:
+          $ref: '#/components/schemas/Priority'
+        dueDate:
+          type: string
+          format: date
+          nullable: true
+        isOverdue:
+          type: boolean
+        assignee:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/UserRef'
+          nullable: true
+        tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/IdName'
+        parent:
+          type: object
+          nullable: true
+          required: [id, key]
+          properties:
+            id:
+              type: string
+              format: uuid
+            key:
+              type: string
+        blocked:
+          type: boolean
+        rank:
+          type: string
+    BoardColumnCards:
+      type: object
+      required: [statusId, requiresReason, count, cards]
+      properties:
+        statusId:
+          type: string
+          format: uuid
+        requiresReason:
+          type: boolean
+          description: Как у статуса колонки - при переносе в неё нужна причина; диалог причины не требует отдельного запроса статусов
+        count:
+          type: integer
+          description: Число подходящих карточек с учётом фильтров и окна Done
+        cards:
+          type: array
+          items:
+            $ref: '#/components/schemas/BoardCard'
+    BoardCards:
+      type: object
+      required: [columns]
+      properties:
+        columns:
+          type: array
+          items:
+            $ref: '#/components/schemas/BoardColumnCards'
+    MoveTaskRequest:
+      type: object
+      required: [statusId]
+      properties:
+        statusId:
+          type: string
+          format: uuid
+        prevId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Сосед, которого пользователь видит непосредственно выше места, куда бросили карточку. null равен отсутствию поля. Неизвестный UUID - 409 stale_position
+        nextId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Сосед, которого пользователь видит непосредственно ниже места, куда бросили карточку. null равен отсутствию поля. Неизвестный UUID - 409 stale_position
+        reason:
+          type: string
+          maxLength: 2000
+          description: Причина; обязательна при смене статуса на статус с requiresReason. Если статус не меняется - игнорируется (комментарий не создаётся)
+    CommentKind:
+      type: string
+      enum: [comment, status_reason]
+    Comment:
+      type: object
+      required: [id, taskId, kind, body, mentions, author, createdAt, editedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        taskId:
+          type: string
+          format: uuid
+        kind:
+          $ref: '#/components/schemas/CommentKind'
+        body:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        mentions:
+          type: array
+          items:
+            type: string
+            format: uuid
+        author:
+          $ref: '#/components/schemas/UserRef'
+        createdAt:
+          type: string
+          format: date-time
+        editedAt:
+          type: string
+          format: date-time
+          nullable: true
+    CommentPage:
+      type: object
+      required: [items, hasMore, nextCursor]
+      properties:
+        items:
+          type: array
+          description: От старых к новым
+          items:
+            $ref: '#/components/schemas/Comment'
+        hasMore:
+          type: boolean
+        nextCursor:
+          type: string
+          nullable: true
+          description: Курсор самого раннего показанного комментария для следующего запроса; null, если hasMore = false
+    CreateCommentRequest:
+      type: object
+      required: [body]
+      properties:
+        body:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        mentions:
+          type: array
+          maxItems: 20
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+    UpdateCommentRequest:
+      type: object
+      properties:
+        body:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        mentions:
+          type: array
+          maxItems: 20
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+    Worklog:
+      type: object
+      required: [id, taskId, user, date, minutes, comment, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        taskId:
+          type: string
+          format: uuid
+        user:
+          $ref: '#/components/schemas/UserRef'
+        date:
+          type: string
+          format: date
+        minutes:
+          type: integer
+          minimum: 1
+          maximum: 1440
+        comment:
+          type: string
+          nullable: true
+          maxLength: 2000
+        createdAt:
+          type: string
+          format: date-time
+    WorklogList:
+      type: object
+      required: [items, totalMinutes]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Worklog'
+        totalMinutes:
+          type: integer
+    CreateWorklogRequest:
+      type: object
+      required: [minutes]
+      properties:
+        minutes:
+          type: integer
+          minimum: 1
+          maximum: 1440
+        date:
+          type: string
+          format: date
+          description: По умолчанию сегодня (UTC); не позже завтрашней даты UTC
+        comment:
+          type: string
+          nullable: true
+          maxLength: 2000
+    UpdateWorklogRequest:
+      type: object
+      properties:
+        minutes:
+          type: integer
+          minimum: 1
+          maximum: 1440
+        date:
+          type: string
+          format: date
+        comment:
+          type: string
+          nullable: true
+          maxLength: 2000
+    NotificationType:
+      type: string
+      enum:
+        [
+          assigned,
+          reviewer_assigned,
+          mentioned,
+          commented,
+          status_changed,
+          assignee_changed,
+          reviewer_changed,
+        ]
+    NotificationTask:
+      type: object
+      required: [id, key, title, projectId, projectKey]
+      properties:
+        id:
+          type: string
+          format: uuid
+        key:
+          type: string
+        title:
+          type: string
+        projectId:
+          type: string
+          format: uuid
+        projectKey:
+          type: string
+    NotificationDetails:
+      type: object
+      description: >
+        Всегда объект со всеми пятью полями. status_changed - from, to, reason; assignee_changed и reviewer_changed - from и to (null - не назначен);
+        commented и mentioned - commentId и excerpt; assigned и reviewer_assigned - все поля null. Поля, не относящиеся к типу, равны null.
+      required: [from, to, reason, commentId, excerpt]
+      properties:
+        from:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/HistoryValue'
+          nullable: true
+        to:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/HistoryValue'
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+        commentId:
+          type: string
+          format: uuid
+          nullable: true
+        excerpt:
+          type: string
+          nullable: true
+          maxLength: 200
+    NotificationItem:
+      type: object
+      required: [id, type, actor, task, details, createdAt, read]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          $ref: '#/components/schemas/NotificationType'
+        actor:
+          $ref: '#/components/schemas/UserRef'
+        task:
+          $ref: '#/components/schemas/NotificationTask'
+        details:
+          $ref: '#/components/schemas/NotificationDetails'
+        createdAt:
+          type: string
+          format: date-time
+        read:
+          type: boolean
+    NotificationPage:
+      type: object
+      required: [items, hasMore, nextCursor]
+      properties:
+        items:
+          type: array
+          description: От новых к старым
+          items:
+            $ref: '#/components/schemas/NotificationItem'
+        hasMore:
+          type: boolean
+        nextCursor:
+          type: string
+          nullable: true
+          description: Курсор последнего показанного уведомления для следующего запроса; null, если hasMore = false
+    UnreadCount:
+      type: object
+      required: [count]
+      properties:
+        count:
+          type: integer
+          minimum: 0
