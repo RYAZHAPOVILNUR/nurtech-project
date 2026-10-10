@@ -12,6 +12,7 @@
 | [06-create-task-dialog.md](06-create-task-dialog.md) | диалог создания задачи |
 | [07-account-and-shell.md](07-account-and-shell.md) | вход, приглашение, профиль, верхняя панель (каркас ментора) |
 | [08-data-model-and-permissions.md](08-data-model-and-permissions.md) | модель данных, роли и ключи, ключ → ручки |
+| [backend/AGENT.md](backend/AGENT.md) | инструкция для ИИ-агента разработчика бэкенда: что читать, правила, сроки |
 | [backend/](backend/00-conventions.md) | ТЗ бэкенда: соглашения и пакеты 1–4; контракт — [backend/openapi/openapi.yaml](backend/openapi/openapi.yaml), отличия от полной версии — [CHANGELOG](backend/openapi/CHANGELOG.md) |
 
 Макеты — `wireframes/` по экранам: `board` (доски и состояния), `card` (диалог, страница, вкладки, окна, состояния), `create-task`, `account` (вход, приглашение, профиль, служебные экраны), `navigation` (верхняя панель и переключатели). Макеты в стиле Taiga UI 5 без подписей компонентов; эмодзи обозначают иконки.
