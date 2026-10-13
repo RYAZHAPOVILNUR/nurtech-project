@@ -1,59 +1,57 @@
-# NurtechProject
+# TaskManager
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 21.2.24.
+Управление задачами на Angular 21, Taiga UI 5 и `@ngrx/signals`.
 
-## Development server
+Требования и макеты лежат в ветке `docs/mvp`, папка `docs-short/`: начните с `README.md`, правила интерфейса — `03-ui-rules.md`.
 
-To start a local development server, run:
+Контракт API — [`api/openapi.yaml`](api/openapi.yaml). Нашли расхождение с бэкендом — сообщите.
 
-```bash
-ng serve
-```
+## Запуск
 
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
-
-## Code scaffolding
-
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
+Нужны Node.js `^20.19 || ^22.12 || >=24` и npm `>=11`.
 
 ```bash
-ng generate component component-name
+npm ci
+npm start
 ```
 
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
+Приложение откроется на `http://localhost:4200`. Запросы на `/api` dev-сервер проксирует на стенд бэкенда — адрес задан в `proxy.conf.json`.
 
-```bash
-ng generate --help
+Сессия хранится в httpOnly-cookie, поэтому фронт и `/api` всегда открываются с одного адреса: в разработке это делает прокси, на проде — веб-сервер.
+
+| Команда                                   | Что делает                                                        |
+| ----------------------------------------- | ----------------------------------------------------------------- |
+| `npm start`                               | dev-сервер с прокси                                               |
+| `npm run build`                           | продакшен-сборка                                                  |
+| `npm run lint` / `lint:fix`               | ESLint для `.ts` и шаблонов                                       |
+| `npm run lint:styles` / `lint:styles:fix` | stylelint для `.scss`, порядок свойств исправляется автоматически |
+| `npm run format` / `format:check`         | Prettier                                                          |
+| `npm run check`                           | все проверки CI, кроме сборки                                     |
+
+CI на каждый PR запускает ESLint, stylelint, Prettier и сборку. PR с красным CI на ревью не берётся.
+
+Перед `git push` хук husky запускает `npm run check` и не даёт запушить код с ошибками. Хук ставится сам при `npm ci`.
+
+Состояние сторов и их экшены видны в расширении браузера [Redux DevTools](https://github.com/reduxjs/redux-devtools).
+
+## Архитектура
+
+```
+core/       то, без чего приложение не стартует: аутентификация, layout, права, текущий пользователь
+shared/     переиспользуемый код без доменной логики
+<домен>/    экраны и логика одной предметной области: board/, task/, profile/ …
 ```
 
-## Building
+- Внутри домена файлы раскладываются по типу сущности. Как именно — видно по `core`.
+- `shared` ни от чего не зависит, `core` — только от `shared`, домены — от `core` и `shared`. Страницы и компоненты чужого домена не импортируем.
+- Состояние живёт в сторах: общее для приложения — в глобальных, состояние экрана — в сторе страницы. В сторе только состояние и работа с ним; навигация, диалоги и прочий UI остаются в компонентах или сервисах.
+- Сетевые ошибки (401, 409, 5xx, нет сети) обрабатывают перехватчики. Страница отвечает только за ошибки, которые касаются её самой: 404, ошибки полей формы.
+- Пока ручки бэкенда для экрана нет, данные берутся из фикстуры `*.fixture.ts` рядом с компонентом, типизированной по контракту.
 
-To build the project run:
+## Ветки и PR
 
-```bash
-ng build
-```
-
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
-
-## Running unit tests
-
-To execute unit tests with the [Vitest](https://vitest.dev/) test runner, use the following command:
-
-```bash
-ng test
-```
-
-## Running end-to-end tests
-
-For end-to-end (e2e) testing, run:
-
-```bash
-ng e2e
-```
-
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
-
-## Additional Resources
-
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+- Ветка от `dev`: `feat/board-columns`, `fix/card-dialog-close`. В `main` не пушим.
+- Одна задача — один PR, задача не больше 6 часов. Чем меньше строк, тем быстрее ревью.
+- Коммит — одна строка: `feat: Добавлен переключатель досок`, `fix: Исправлено закрытие карточки`.
+- В описании PR — ссылка на задачу и скриншот/видео результата.
+- Сначала перекрестное ревью (cross-review), потом финальное.
